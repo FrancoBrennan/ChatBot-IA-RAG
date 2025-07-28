@@ -5,6 +5,8 @@ from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 import os
 import json
+from knowledge_graph import grafo_conocimiento
+
 
 
 load_dotenv()
@@ -24,7 +26,9 @@ embedder = Embedder()
 
 # El parámetro top_k define cuántos vectores (chunks) similares se van a recuperar del índice FAISS cuando haces una búsqueda.
 def search_similar_chunks_with_metadata(question, top_k=5, threshold=0.9):
-    question_vector = embedder.embed([question])
+    pregunta_expandida = construir_consulta_expandida(question, grafo_conocimiento)
+    question_vector = embedder.embed([pregunta_expandida])
+
     query_vector = np.array(question_vector).astype('float32')
 
     distances, indices = index.search(query_vector, top_k)
@@ -102,3 +106,24 @@ def registrar_consulta_no_resuelta(pregunta: str):
             {"pregunta": pregunta}
         )
         conn.commit()
+
+
+def obtener_conceptos_relacionados(pregunta, grafo):
+    conceptos_encontrados = []
+
+    for concepto in grafo:
+        if concepto.lower() in pregunta.lower():
+            conceptos_encontrados.append(concepto)
+
+    relacionados = set()
+    for concepto in conceptos_encontrados:
+        relacionados.add(concepto)
+        relacionados.update(grafo[concepto]["relaciones"])
+
+    return list(relacionados)
+
+
+def construir_consulta_expandida(pregunta, grafo):
+    conceptos = obtener_conceptos_relacionados(pregunta, grafo)
+    texto_expandido = " ".join(conceptos) + " " + pregunta
+    return texto_expandido

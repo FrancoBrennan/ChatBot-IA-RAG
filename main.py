@@ -11,6 +11,8 @@ from search_engine import search_similar_chunks_with_metadata, retrieve_chunks, 
 from generator import generar_respuesta
 from vector_store import index_documents
 from fastapi import Path
+from knowledge_graph import grafo_conocimiento
+from search_engine import obtener_conceptos_relacionados
 
 
 
@@ -67,6 +69,9 @@ def listar_documentos(db: Session = Depends(get_db)):
 
 @app.get("/buscar")
 def buscar_respuesta(pregunta: str):
+    conceptos = obtener_conceptos_relacionados(pregunta, grafo_conocimiento)
+    subgrafo = {k: grafo_conocimiento[k] for k in conceptos if k in grafo_conocimiento}
+
     contexto, fuentes = search_similar_chunks_with_metadata(pregunta)
 
     if contexto is None:
@@ -76,7 +81,7 @@ def buscar_respuesta(pregunta: str):
             "fuentes": []
     }
 
-    respuesta = generar_respuesta(pregunta, contexto)
+    respuesta = generar_respuesta(pregunta, contexto, grafo=subgrafo)
     return {"respuesta": respuesta, "fuentes": fuentes}
 
 

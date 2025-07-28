@@ -1,0 +1,65 @@
+{
+  "VPN": {
+    "relaciones": [
+      "Acceso remoto",
+      "Conexión segura",
+      "Dispositivo autorizado"
+    ],
+    "descripcion": "Una red privada virtual que permite conectarse de forma segura a la red corporativa desde ubicaciones remotas."
+  },
+  "Correo corporativo": {
+    "relaciones": [
+      "Contraseñas seguras",
+      "Autenticación en dos pasos",
+      "Phishing",
+      "Acceso remoto"
+    ],
+    "descripcion": "Servicio de correo provisto por la empresa que requiere prácticas seguras para evitar filtraciones."
+  },
+  "Phishing": {
+    "relaciones": [
+      "Correo corporativo",
+      "Seguridad de la información"
+    ],
+    "descripcion": "Tipo de ataque donde un tercero intenta engañar al usuario para robar información sensible."
+  },
+  "Carpetas compartidas": {
+    "relaciones": [
+      "Red corporativa",
+      "Acceso remoto",
+      "VPN"
+    ],
+    "descripcion": "Recursos accesibles por múltiples usuarios dentro de la red corporativa, requieren autenticación y red segura."
+  },
+  "Acceso remoto": {
+    "relaciones": [
+      "VPN",
+      "Correo corporativo",
+      "Carpetas compartidas",
+      "Autenticación en dos pasos"
+    ],
+    "descripcion": "Capacidad de acceder a recursos internos desde fuera de la red de la empresa mediante conexiones seguras."
+  },
+  "Autenticación en dos pasos": {
+    "relaciones": [
+      "Correo corporativo",
+      "VPN",
+      "Acceso remoto"
+    ],
+    "descripcion": "Medida de seguridad adicional que solicita una segunda verificación además de la contraseña."
+  },
+  "Contraseñas seguras": {
+    "relaciones": [
+      "Correo corporativo",
+      "Phishing"
+    ],
+    "descripcion": "Uso de claves robustas y únicas para cada cuenta, con cambios periódicos."
+  },
+  "Software autorizado": {
+    "relaciones": [
+      "Instalación controlada",
+      "Seguridad de dispositivos"
+    ],
+    "descripcion": "Programas que han sido aprobados por IT para su uso dentro de la empresa."
+  }
+}
