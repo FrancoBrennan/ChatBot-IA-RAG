@@ -11,10 +11,24 @@ client = OpenAI(
 
 def generar_respuesta(pregunta, contexto):
     response = client.chat.completions.create(
-        model="mistralai/mixtral-8x7b-instruct",  # También podés probar gpt-3.5-turbo, openchat, claude-3-haiku...
+        model="mistralai/mixtral-8x7b-instruct",
         messages=[
-            {"role": "system", "content": "Sos un asistente de soporte técnico. Respondé con claridad y precisión usando el contexto proporcionado."},
-            {"role": "user", "content": f"Contexto:\n{contexto}\n\nPregunta: {pregunta}"}
+            {
+                "role": "system",
+                "content": (
+                    "Sos un asistente de soporte técnico especializado en IT. "
+                    "Tu tarea es responder preguntas de manera clara, útil y profesional. "
+                    "Utilizá únicamente la información del contexto que se te brinda, sin inventar datos. "
+                    "No hagas referencia al nombre de los documentos fuente, ni menciones frases como 'según el documento', 'según la guía', 'en la FAQ', etc. "
+                    "Tampoco repitas títulos o encabezados. "
+                    "Respondé en tono directo y práctico, como lo haría un técnico capacitado ayudando a un usuario."
+                )
+            },
+            {
+                "role": "user",
+                "content": f"Contexto:\n{contexto}\n\nPregunta: {pregunta}"
+            }
         ]
     )
     return response.choices[0].message.content
+
