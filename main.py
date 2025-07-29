@@ -13,10 +13,18 @@ from vector_store import index_documents
 from fastapi import Path
 from knowledge_graph import grafo_conocimiento
 from search_engine import obtener_conceptos_relacionados
-
-
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+
+# Permitir solicitudes desde el frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # origen del frontend
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 Base.metadata.create_all(bind=engine)
 
@@ -83,8 +91,6 @@ def buscar_respuesta(pregunta: str):
 
     respuesta = generar_respuesta(pregunta, contexto, grafo=subgrafo)
     return {"respuesta": respuesta, "fuentes": fuentes}
-
-
 
 
 @app.get("/vector-similar")
