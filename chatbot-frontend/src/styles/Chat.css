@@ -1,0 +1,95 @@
+/* Envoltorio principal del chat */
+.chat-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100%;
+  padding: 20px 200px 0px 400px; /* izquierda (futuro sidebar), derecha (para top-bar) */
+  box-sizing: border-box;
+  overflow: hidden;
+  align-items: center;
+}
+
+.layout {
+  display: flex;
+}
+
+/* Área donde aparecen los mensajes */
+.chat-box {
+  flex: 1;
+  padding: 1rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Caja inferior de entrada de texto */
+.input-box {
+  display: flex;
+  height: 40px;
+  width: 800px;
+  padding: 1rem;
+  border-top: 1px solid #333;
+  border-radius: 15px;
+  background: #202020;
+}
+
+.input-box input {
+  flex: 1;
+  padding: 0.5rem 1rem;
+  font-size: 1rem;
+  border: 1px solid #b4b4b4;
+  border-radius: 20px;
+  margin-right: 1rem;
+  background: #2a2a2a;
+  color: #fff;
+}
+
+.input-box button {
+  padding: 0.5rem 1.2rem;
+  background-color: #10a37f;
+  color: #fff;
+  border: none;
+  border-radius: 20px;
+  cursor: pointer;
+}
+
+.message {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  max-width: 70%;
+  line-height: 1.5;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.message.user {
+  background-color: #0e854f;
+  align-self: flex-end;
+  color: white;
+}
+
+.message.assistant {
+  background-color: #5470a8;
+  align-self: flex-start;
+  color: white;
+}
+
+/* Botón fijo superior derecho */
+.top-bar {
+  position: fixed;
+  top: 15px;
+  right: 25px;
+  z-index: 1000;
+}
+
+.nav-button {
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  background: #424141;
+  color: white;
+  border: none;
+  border-radius: 6px;
+}
