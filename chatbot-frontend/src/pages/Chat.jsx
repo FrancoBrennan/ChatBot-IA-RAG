@@ -79,7 +79,7 @@ function Chat() {
     setChatId(id);
     try {
       const res = await axios.get(`http://localhost:8000/conversaciones/${id}`);
-      console.log(res);
+      //console.log(res);
       const mensajes = res.data.mensajes.map((m) => ({
         role: m.rol,
         content: m.contenido,

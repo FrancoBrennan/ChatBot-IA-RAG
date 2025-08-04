@@ -7,11 +7,11 @@ import {
 import AdminPanel from "./pages/AdminPanel";
 import Chat from "./pages/Chat";
 import Login from "./pages/Login";
-// import PrivateRoute from "./routes/PrivateRoute"; // 🔴 comentá esta línea si ya no la usás
-// import { useAuth } from "./context/AuthContext"; // 🔴 idem si no se usa
+// import PrivateRoute from "./routes/PrivateRoute"; //
+// import { useAuth } from "./context/AuthContext"; //
 
 function App() {
-  // const { user } = useAuth(); // 🔴 comentá esto también
+  // const { user } = useAuth(); //
 
   return (
     <Router>
