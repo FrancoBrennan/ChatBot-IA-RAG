@@ -19,19 +19,20 @@ from pydantic import BaseModel
 
 import bcrypt
 
-app = FastAPI()
+app = FastAPI()  # Crea una instancia de la aplicación
 
-# Permitir solicitudes desde el frontend
+# Habilita CORS para que el frontend pueda comunicarse
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # origen del frontend
+    allow_origins=["http://localhost:5173"],  # Origen permitido (frontend)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-Base.metadata.create_all(bind=engine)
+Base.metadata.create_all(bind=engine)  # Crea las tablas en la base de datos si no existen
 
+# Función para obtener una sesión de base de datos
 def get_db():
     db = SessionLocal()
     try:
@@ -39,26 +40,32 @@ def get_db():
     finally:
         db.close()
 
+# Define la carpeta donde se guardan los PDFs
 UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(UPLOAD_DIR, exist_ok=True)  # Crea la carpeta si no existe
 
+# Ruta para subir PDFs
 @app.post("/upload")
 async def upload_pdf(archivo: UploadFile = File(...), db: Session = Depends(get_db)):
+    # Validación del archivo
     if not archivo.filename.endswith(".pdf") or archivo.content_type != "application/pdf":
         return {"error": "Solo se permiten archivos PDF"}
 
+    # Evita duplicados
     existing = db.query(Documento).filter_by(nombre_archivo=archivo.filename).first()
     if existing:
         return {"error": "Este archivo ya fue subido previamente"}
 
+    # Guarda el archivo en disco
     file_path = os.path.join(UPLOAD_DIR, archivo.filename)
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(archivo.file, buffer)
 
+    # Extrae y concatena el texto del PDF
     texto_por_paginas = extraer_texto_pdf(file_path)  # List[(pagina, texto)]
     texto_concatenado = "\n".join([texto for _, texto in texto_por_paginas])
 
-
+    # Crea objeto Documento
     doc = Documento(
         nombre_archivo=archivo.filename,
         fecha_subida=datetime.utcnow(),
@@ -69,24 +76,24 @@ async def upload_pdf(archivo: UploadFile = File(...), db: Session = Depends(get_
     db.commit()
     db.refresh(doc)
 
-    # 🟩 Reindexar documentos automáticamente después de subir
-    index_documents()
+    index_documents()  # Indexa todos los documentos nuevamente
 
     return {"message": "PDF subido exitosamente", "id": doc.id}
 
+# Ruta para listar todos los datasets cargados
 @app.get("/listar-datasets")
 def listar_datasets(db: Session = Depends(get_db)):
     documentos = db.query(Documento).all()
     return [{"id": d.id, "nombre": d.nombre_archivo} for d in documentos]
 
-
+# Ruta para eliminar un dataset
 @app.delete("/eliminar-dataset/{id}")
 def eliminar_dataset(id: int, db: Session = Depends(get_db)):
     documento = db.query(Documento).filter(Documento.id == id).first()
     if not documento:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
 
-    # Borrar archivo físico si existe
+    # Borra el archivo físico
     ruta_archivo = os.path.join(UPLOAD_DIR, documento.nombre_archivo)
     if os.path.exists(ruta_archivo):
         os.remove(ruta_archivo)
@@ -96,7 +103,7 @@ def eliminar_dataset(id: int, db: Session = Depends(get_db)):
 
     return {"mensaje": "Documento eliminado correctamente"}
 
-
+# Ruta principal de búsqueda
 @app.get("/buscar")
 def buscar_respuesta(pregunta: str):
     conceptos = obtener_conceptos_relacionados(pregunta, grafo_conocimiento)
@@ -114,12 +121,13 @@ def buscar_respuesta(pregunta: str):
     respuesta = generar_respuesta(pregunta, contexto, grafo=subgrafo)
     return {"respuesta": respuesta, "fuentes": fuentes}
 
-
+# Ruta para obtener chunks similares
 @app.get("/vector-similar")
 def buscar_chunks(pregunta: str):
     chunks = retrieve_chunks(pregunta, top_k=2)
     return {"chunks_similares": chunks}
 
+# Eliminar documento por ID (usando SQL directa)
 @app.delete("/documento/{id}", tags=["Documentos"])
 def eliminar_documento(id: int = Path(..., description="ID del documento a eliminar")):
     with engine.connect() as conn:
@@ -133,16 +141,18 @@ def eliminar_documento(id: int = Path(..., description="ID del documento a elimi
 
     return {"mensaje": f"Documento con id {id} eliminado correctamente."}
 
-
+# Reindexar documentos manualmente
 @app.post("/actualizar-documentos")
 def actualizar_documentos():
     index_documents()
     return {"mensaje": "Documentos reindexados correctamente"}
 
+# Esquema de entrada para login
 class LoginInput(BaseModel):
     username: str
     password: str
 
+# Ruta para autenticación
 @app.post("/login")
 def login(data: LoginInput, db: Session = Depends(get_db)):
     user = db.query(Usuario).filter_by(username=data.username).first()
@@ -154,6 +164,7 @@ def login(data: LoginInput, db: Session = Depends(get_db)):
         "is_admin": user.is_admin
     }
 
+# Crear nueva conversación
 @app.post("/conversaciones/", response_model=dict)
 def crear_conversacion(db: Session = Depends(get_db)):
     conv = Conversacion(titulo="Nueva conversación")
@@ -161,10 +172,13 @@ def crear_conversacion(db: Session = Depends(get_db)):
     db.commit()
     db.refresh(conv)
     return {"id": conv.id}
+
+# Esquema para mensajes en conversación
 class MensajeInput(BaseModel):
     rol: str
     contenido: str
 
+# Agregar mensaje a conversación
 @app.post("/conversaciones/{id}/mensaje")
 def agregar_mensaje(id: int, mensaje: MensajeInput, db: Session = Depends(get_db)):
     conversacion = db.query(Conversacion).filter_by(id=id).first()
@@ -180,10 +194,12 @@ def agregar_mensaje(id: int, mensaje: MensajeInput, db: Session = Depends(get_db
     db.commit()
     return {"mensaje": "Mensaje agregado"}
 
+# Listar todas las conversaciones
 @app.get("/conversaciones")
 def listar_conversaciones(db: Session = Depends(get_db)):
     return db.query(Conversacion).all()
 
+# Obtener una conversación específica
 @app.get("/conversaciones/{conv_id}")
 def obtener_conversacion(conv_id: int, db: Session = Depends(get_db)):
     conv = db.query(Conversacion).filter(Conversacion.id == conv_id).first()
@@ -194,4 +210,3 @@ def obtener_conversacion(conv_id: int, db: Session = Depends(get_db)):
         "titulo": conv.titulo,
         "mensajes": [{"rol": m.rol, "contenido": m.contenido} for m in conv.mensajes]
     }
-
