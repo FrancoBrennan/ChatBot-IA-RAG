@@ -80,29 +80,6 @@ def search_similar_chunks_with_metadata(question, top_k=5, threshold=0.9):
     respuesta = " ".join(selected_chunks)  # Une los fragmentos seleccionados
     return respuesta, fuentes  # Devuelve el contexto + fuentes
 
-# Devuelve solo los chunks más similares, sin usar LLM
-def retrieve_chunks(pregunta, top_k=2):
-    question_vector = embedder.embed([pregunta])
-    query_vector = np.array(question_vector).astype('float32')
-
-    distances, indices = index.search(query_vector, top_k)
-
-    # Recupera todos los textos completos desde la base
-    with engine.connect() as conn:
-        result = conn.execute(text("SELECT texto_limpio FROM documentos"))
-        all_texts = [row[0] for row in result]
-
-    chunks = []
-    for text_row in all_texts:
-        # Divide en fragmentos de 500 tokens (con overlap de 100)
-        for i in range(0, len(text_row), 500 - 100):
-            chunk = text_row[i:i + 500]
-            chunks.append(chunk)
-
-    # Devuelve solo los chunks seleccionados por FAISS
-    resultados = [chunks[i] for i in indices[0]]
-    return resultados
-
 # Registra preguntas no respondidas para posterior análisis
 def registrar_consulta_no_resuelta(pregunta: str):
     with engine.connect() as conn:

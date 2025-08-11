@@ -6,7 +6,7 @@ from database import SessionLocal, engine
 from models import Base, Documento, Conversacion, Mensaje
 from utils import extraer_texto_pdf
 from datetime import datetime
-from search_engine import search_similar_chunks_with_metadata, retrieve_chunks, registrar_consulta_no_resuelta
+from search_engine import search_similar_chunks_with_metadata, registrar_consulta_no_resuelta
 from generator import generar_respuesta
 from vector_store import index_documents
 from fastapi import Path
@@ -114,18 +114,12 @@ def buscar_respuesta(pregunta: str):
     if contexto is None:
         registrar_consulta_no_resuelta(pregunta)
         return {
-            "respuesta": "La información solicitada está fuera del dominio. Por favor, contactá con un humano.",
+            "respuesta": "La información solicitada está fuera del dominio. Se generará un ticket con mesa de ayuda, se pondrán en contacto contigo.",
             "fuentes": []
     }
 
     respuesta = generar_respuesta(pregunta, contexto, grafo=subgrafo)
     return {"respuesta": respuesta, "fuentes": fuentes}
-
-# Ruta para obtener chunks similares
-@app.get("/vector-similar")
-def buscar_chunks(pregunta: str):
-    chunks = retrieve_chunks(pregunta, top_k=2)
-    return {"chunks_similares": chunks}
 
 # Eliminar documento por ID (usando SQL directa)
 @app.delete("/documento/{id}", tags=["Documentos"])
