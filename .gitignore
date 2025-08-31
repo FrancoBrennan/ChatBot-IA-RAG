@@ -1,0 +1,30 @@
+# ---- Python / FastAPI
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+.mypy_cache/
+pytest_cache/
+.venv/
+venv/
+
+# ---- LangChain / FAISS (índices locales)
+indices/
+faiss.index
+faiss_metadata.json
+
+# ---- Cargas locales
+uploads/
+
+# ---- Node / Vite (frontend)
+node_modules/
+dist/
+
+# ---- IDE / SO
+.vscode/
+.idea/
+.DS_Store
+
+# ---- Secretos
+.env

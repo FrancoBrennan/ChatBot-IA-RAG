@@ -13,10 +13,13 @@ from sqlalchemy.exc import IntegrityError
 from database import SessionLocal, engine
 from models import Base, Documento, Conversacion, Mensaje, Usuario
 from utils import extraer_texto_pdf
-from search_engine import search_similar_chunks_with_metadata, registrar_consulta_no_resuelta, obtener_conceptos_relacionados
-from generator import generar_respuesta
-from vector_store import index_documents
-from knowledge_graph import grafo_conocimiento
+# ⬇️ si lo dejaste en utils, mantené esta línea; si lo moviste a unresolved.py, cambiá el import
+from utils import registrar_consulta_no_resuelta
+
+# LangChain
+from vectorstore_langchain import build_faiss, INDEX_DIR
+from rag_chain import build_rag, INSUFF_MSG
+
 from auth import crear_token, verificar_contraseña, verificar_token, hashear_contraseña
 
 app = FastAPI()
@@ -32,6 +35,16 @@ app.add_middleware(
 
 # Crear tablas si no existen
 Base.metadata.create_all(bind=engine)
+
+# ===== LangChain Answer (build si ya hay índice) =====
+answer = None
+os.makedirs(INDEX_DIR, exist_ok=True)
+if os.path.exists(os.path.join(INDEX_DIR, "index.faiss")):
+    answer = build_rag()
+else:
+    def _empty_answer(_q: str):
+        return INSUFF_MSG, []
+    answer = _empty_answer
 
 # ========= DB dependency =========
 def get_db():
@@ -57,48 +70,24 @@ class UserOut(BaseModel):
     username: str
     is_admin: bool
 
+# ===== util títulos =====
 def _primer_frase(texto: str) -> str:
     if not texto:
         return ""
-    # 1ra línea o frase
     linea = texto.strip().splitlines()[0]
-    # corta en el primer delimitador fuerte
     for sep in [". ", "? ", "! ", " — ", " - "]:
         if sep in linea:
             linea = linea.split(sep, 1)[0]
             break
-    # colapsa espacios y limpia comillas raras
     linea = re.sub(r"\s+", " ", linea).strip()
     linea = linea.replace("“", "\"").replace("”", "\"").replace("’", "'")
-    # capitaliza primera letra si es minúscula
     if linea and linea[0].islower():
         linea = linea[0].upper() + linea[1:]
     return linea
 
 def sugerir_titulo_con_keywords(texto: str, max_len: int = 60) -> str:
-    base = _primer_frase(texto) or "Nueva conversación"
-    # Keywords del grafo (ordenadas como las devuelva tu función)
-    try:
-        kws = obtener_conceptos_relacionados(texto, grafo_conocimiento) or []
-    except Exception:
-        kws = []
-    # Nos quedamos con 1–2 palabras clave, quitando las que ya aparecen en la frase base
-    base_lower = base.lower()
-    top_kws = []
-    for kw in kws:
-        kw_clean = re.sub(r"\s+", " ", str(kw)).strip()
-        if not kw_clean:
-            continue
-        if kw_clean.lower() in base_lower:
-            continue
-        top_kws.append(kw_clean)
-        if len(top_kws) == 2:
-            break
-    # Armar título: “Frase — kw1, kw2”
-    titulo = base
-    if top_kws:
-        titulo = f"{base} — {', '.join(top_kws)}"
-    # Truncar elegante
+    # Versión simple: solo primera frase (sin grafo)
+    titulo = _primer_frase(texto) or "Nueva conversación"
     if len(titulo) > max_len:
         titulo = titulo[:max_len].rstrip() + "…"
     return titulo
@@ -121,9 +110,7 @@ def require_admin(user: Usuario = Depends(get_current_user)) -> Usuario:
 @app.post("/login", response_model=TokenOut)
 def login(data: LoginInput, db: Session = Depends(get_db)):
     user = db.query(Usuario).filter(Usuario.username == data.username).first()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
-    if not verificar_contraseña(data.password, user.password_hash):
+    if not user or not verificar_contraseña(data.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
     if not user.activo:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Usuario inactivo")
@@ -136,7 +123,6 @@ def me(current_user: Usuario = Depends(get_current_user)):
 
 # ========= Admin: gestión de usuarios =========
 
-# Para crear el primer admin
 @app.post("/init-admin")
 def init_admin(db: Session = Depends(get_db)):
     if db.query(Usuario).filter_by(username="admin").first():
@@ -151,7 +137,6 @@ def init_admin(db: Session = Depends(get_db)):
     db.add(u)
     db.commit()
     return {"mensaje": "Admin creado", "id": u.id}
-
 
 class UserCreateIn(BaseModel):
     username: str
@@ -226,7 +211,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @app.post("/upload")
 async def upload_pdf(archivo: UploadFile = File(...), db: Session = Depends(get_db), _: Usuario = Depends(require_admin)):
-    if not archivo.filename.endswith(".pdf") or archivo.content_type != "application/pdf":
+    if not archivo.filename.lower().endswith(".pdf") or archivo.content_type != "application/pdf":
         return {"error": "Solo se permiten archivos PDF"}
 
     existing = db.query(Documento).filter_by(nombre_archivo=archivo.filename).first()
@@ -238,7 +223,10 @@ async def upload_pdf(archivo: UploadFile = File(...), db: Session = Depends(get_
         shutil.copyfileobj(archivo.file, buffer)
 
     texto_por_paginas = extraer_texto_pdf(file_path)
-    texto_concatenado = "\n".join([texto for _, texto in texto_por_paginas])
+    texto_concatenado = "\n".join([texto for _, texto in texto_por_paginas]) if texto_por_paginas else ""
+
+    if not texto_concatenado.strip():
+        raise HTTPException(status_code=400, detail="No se pudo extraer texto del PDF")
 
     doc = Documento(
         nombre_archivo=archivo.filename,
@@ -249,7 +237,10 @@ async def upload_pdf(archivo: UploadFile = File(...), db: Session = Depends(get_
     db.commit()
     db.refresh(doc)
 
-    index_documents()
+    # Reindex con LangChain
+    build_faiss(INDEX_DIR)
+    global answer
+    answer = build_rag()
     return {"message": "PDF subido exitosamente", "id": doc.id}
 
 @app.get("/listar-datasets")
@@ -284,25 +275,39 @@ def eliminar_documento(id: int = Path(..., description="ID del documento a elimi
 
 @app.post("/actualizar-documentos")
 def actualizar_documentos(_: Usuario = Depends(require_admin)):
-    index_documents()
+    build_faiss(INDEX_DIR)
+    global answer
+    answer = build_rag()
     return {"mensaje": "Documentos reindexados correctamente"}
 
 # ========= Búsqueda (pública) =========
 @app.get("/buscar")
 def buscar_respuesta(pregunta: str):
-    conceptos = obtener_conceptos_relacionados(pregunta, grafo_conocimiento)
-    subgrafo = {k: grafo_conocimiento[k] for k in conceptos if k in grafo_conocimiento}
+    texto, fuentes = answer(pregunta)
 
-    contexto, fuentes = search_similar_chunks_with_metadata(pregunta)
-    if contexto is None:
-        registrar_consulta_no_resuelta(pregunta)
-        return {
-            "respuesta": "La información solicitada está fuera del dominio. Se generará un ticket con mesa de ayuda, se pondrán en contacto contigo.",
-            "fuentes": []
-        }
+    # si no hay info suficiente → NO mandar fuentes
+    if not texto or texto.strip() == "" or texto.strip() == INSUFF_MSG:
+        return {"respuesta": INSUFF_MSG, "fuentes": []}
 
-    respuesta = generar_respuesta(pregunta, contexto, grafo=subgrafo)
-    return {"respuesta": respuesta, "fuentes": fuentes}
+    # deduplicar fuentes y formatear
+    uniq = []
+    seen = set()
+    for f in fuentes:
+        if isinstance(f, dict):
+            key = (f.get("archivo"), f.get("paginas"))
+        else:
+            key = f
+        if key not in seen:
+            seen.add(key)
+            uniq.append(f)
+
+    fuentes_fmt = [
+        f"{f['archivo']}" + (f" (p. {f['paginas']})" if isinstance(f, dict) and 'paginas' in f else "")
+        for f in uniq
+    ]
+
+    return {"respuesta": texto, "fuentes": fuentes_fmt}
+
 
 # ========= Conversaciones (asociadas a usuario) =========
 class ConversacionOut(BaseModel):
@@ -325,7 +330,6 @@ class MensajeOut(BaseModel):
     class Config:
         from_attributes = True
 
-# Crear conversación (POST) — evita 405
 @app.post("/conversaciones/", response_model=ConversacionOut, status_code=201)
 def crear_conversacion(
     body: CreateConvIn | None = None,
@@ -339,7 +343,6 @@ def crear_conversacion(
     db.refresh(conv)
     return conv
 
-# Listar conversaciones del usuario
 @app.get("/conversaciones", response_model=list[ConversacionOut])
 def listar_conversaciones(
     db: Session = Depends(get_db),
@@ -349,7 +352,6 @@ def listar_conversaciones(
                                   .order_by(Conversacion.fecha_creacion.desc()).all()
     return convs
 
-# Obtener conversación (solo si es del usuario)
 @app.get("/conversaciones/{conv_id}")
 def obtener_conversacion(
     conv_id: int,
@@ -371,7 +373,6 @@ def obtener_conversacion(
         ],
     }
 
-# Agregar mensaje (solo si la conversación es del usuario)
 @app.post("/conversaciones/{conv_id}/mensaje", response_model=dict, status_code=201)
 def agregar_mensaje(
     conv_id: int,
@@ -386,18 +387,15 @@ def agregar_mensaje(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversación no encontrada")
 
-    # 👉 si es el primer mensaje y es del usuario, auto-titular con frase + keywords
     hay_mensajes = db.query(Mensaje.id).filter(Mensaje.conversacion_id == conv.id).first() is not None
     if not hay_mensajes and mensaje.rol.lower() == "user":
         conv.titulo = sugerir_titulo_con_keywords(mensaje.contenido)
 
     nuevo = Mensaje(conversacion_id=conv.id, rol=mensaje.rol, contenido=mensaje.contenido)
     db.add(nuevo)
-    db.commit()  # guarda cambio de título y el mensaje
+    db.commit()
     return {"mensaje": "Mensaje agregado"}
 
-
-# Borrar conversación (solo dueño)
 @app.delete("/conversaciones/{conv_id}", status_code=204)
 def borrar_conversacion(
     conv_id: int,
