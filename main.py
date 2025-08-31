@@ -135,6 +135,24 @@ def me(current_user: Usuario = Depends(get_current_user)):
     return {"id": current_user.id, "username": current_user.username, "is_admin": bool(current_user.is_admin)}
 
 # ========= Admin: gestión de usuarios =========
+
+# Para crear el primer admin
+@app.post("/init-admin")
+def init_admin(db: Session = Depends(get_db)):
+    if db.query(Usuario).filter_by(username="admin").first():
+        return {"mensaje": "Ya existe un admin"}
+    u = Usuario(
+        username="admin",
+        nombre="Administrador",
+        password_hash=hashear_contraseña("admin123"),
+        is_admin=True,
+        activo=True
+    )
+    db.add(u)
+    db.commit()
+    return {"mensaje": "Admin creado", "id": u.id}
+
+
 class UserCreateIn(BaseModel):
     username: str
     password: str
