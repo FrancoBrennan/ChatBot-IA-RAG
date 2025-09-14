@@ -43,7 +43,7 @@ if os.path.exists(os.path.join(INDEX_DIR, "index.faiss")):
     answer = build_rag()
 else:
     def _empty_answer(_q: str):
-        return INSUFF_MSG, []
+        return NO_INDEX_MSG, []
     answer = _empty_answer
 
 # ========= DB dependency =========
@@ -205,6 +205,8 @@ def borrar_usuario(user_id: int, db: Session = Depends(get_db), _: Usuario = Dep
     db.commit()
     return
 
+NO_INDEX_MSG = "No hay documentos indexados"
+
 # ========= Admin: Datasets (solo admin) =========
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -260,6 +262,23 @@ def eliminar_dataset(id: int, db: Session = Depends(get_db), _: Usuario = Depend
 
     db.delete(documento)
     db.commit()
+
+    # Si ya no quedan documentos, limpiar índice y setear answer vacío
+    if db.query(Documento.id).count() == 0:
+        # borrar archivos de índice si existieran
+        try:
+            for fname in ["index.faiss", "index.pkl"]:
+                fpath = os.path.join(INDEX_DIR, fname)
+                if os.path.exists(fpath):
+                    os.remove(fpath)
+        except Exception:
+            pass
+
+        global answer
+        def _empty_answer(_q: str):
+            return NO_INDEX_MSG, []
+        answer = _empty_answer
+
     return {"mensaje": "Documento eliminado correctamente"}
 
 @app.delete("/documento/{id}", tags=["Documentos"])
@@ -282,31 +301,38 @@ def actualizar_documentos(_: Usuario = Depends(require_admin)):
 
 # ========= Búsqueda (pública) =========
 @app.get("/buscar")
-def buscar_respuesta(pregunta: str):
+def buscar_respuesta(pregunta: str, db: Session = Depends(get_db)):
+    # Si no hay documentos o no existe el índice → mensaje estándar
+    if db.query(Documento.id).count() == 0 or not os.path.exists(os.path.join(INDEX_DIR, "index.faiss")):
+        return {"respuesta": NO_INDEX_MSG, "fuentes": []}
+
     texto, fuentes = answer(pregunta)
 
     # si no hay info suficiente → NO mandar fuentes
     if not texto or texto.strip() == "" or texto.strip() == INSUFF_MSG:
         return {"respuesta": INSUFF_MSG, "fuentes": []}
 
-    # deduplicar fuentes y formatear
-    uniq = []
-    seen = set()
+    # deduplicar y formatear
+    uniq, seen = [], set()
     for f in fuentes:
         if isinstance(f, dict):
             key = (f.get("archivo"), f.get("paginas"))
         else:
             key = f
         if key not in seen:
-            seen.add(key)
-            uniq.append(f)
+            seen.add(key); uniq.append(f)
 
     fuentes_fmt = [
-        f"{f['archivo']}" + (f" (p. {f['paginas']})" if isinstance(f, dict) and 'paginas' in f else "")
-        for f in uniq
+        f"{f['archivo']}" + (f" (p. {f.get('paginas')})" if isinstance(f, dict) and f.get('paginas') else "")
+        for f in uniq if isinstance(f, dict) and f.get('archivo')
     ]
 
+    # ⚠️ Agregamos la leyenda “Basado en: …” al final del texto si hay fuentes
+    if fuentes_fmt:
+        texto = f"{texto}\n\nBasado en: {', '.join(fuentes_fmt)}"
+
     return {"respuesta": texto, "fuentes": fuentes_fmt}
+
 
 
 # ========= Conversaciones (asociadas a usuario) =========

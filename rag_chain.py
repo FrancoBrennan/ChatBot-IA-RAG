@@ -5,7 +5,7 @@ from langchain_core.documents import Document
 from retrievers import build_pro_retriever
 from utils import registrar_consulta_no_resuelta  # inserta en DB
 
-INSUFF_MSG = "No tengo información suficiente en la base para responder eso."
+INSUFF_MSG = "No tengo información suficiente en la base para responder eso. Se generará un ticket con mesa de ayuda, se pondrán en contacto contigo."
 
 SYSTEM_PROMPT = (
     "Sos un asistente técnico. Respondé SOLO con el contexto provisto. "
