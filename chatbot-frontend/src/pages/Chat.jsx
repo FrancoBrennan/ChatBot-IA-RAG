@@ -8,6 +8,7 @@ import "../styles/Chat.css";
 function Chat() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
   const messagesEndRef = useRef(null);
   const [chatId, setChatId] = useState(() => {
     const saved = localStorage.getItem("activeConvId");
@@ -52,60 +53,49 @@ function Chat() {
 
   const handleSend = async () => {
     const text = input.trim();
-    if (!text) return;
+    if (!text || sending) return;
 
+    setSending(true);
     const currentConvId = await ensureConversation();
 
-    // pintar mensaje de usuario
+    // UI optimista: mostrar mensaje del usuario
     const userMessage = { role: "user", content: text };
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
 
-    // guardar mensaje de usuario
     try {
-      await api.post(`/conversaciones/${currentConvId}/mensaje`, {
+      const { data } = await api.post(`/conversaciones/${currentConvId}/mensaje`, {
         rol: "user",
         contenido: text,
       });
-      // 🔔 backend renombra si es el primer mensaje → pedir al Sidebar refrescar
+
+      let botText = data?.respuesta ?? "Sin respuesta.";
+      const sources = Array.isArray(data?.fuentes) ? data.fuentes : [];
+      // Fallback: si el backend no incluyó “Basado en:” y sí hay fuentes, lo agregamos acá.
+      if (!/Basado en:/i.test(botText) && sources.length > 0) {
+        botText = `${botText}\n\nBasado en: ${sources.join(", ")}`;
+      }
+      setMessages((prev) => [...prev, { role: "assistant", content: botText }]);
+
+      // actualizar título si es primer mensaje
       window.dispatchEvent(new Event("reload-convs"));
     } catch (err) {
-      console.error("No se pudo guardar el mensaje del usuario:", err);
-    }
-
-    // pedir respuesta del bot y guardarla
-    try {
-      const { data } = await api.get("/buscar", { params: { pregunta: text } });
-      const botText = data?.respuesta ?? "Sin respuesta.";
-      const botMessage = { role: "assistant", content: botText };
-      setMessages((prev) => [...prev, botMessage]);
-
-      try {
-        await api.post(`/conversaciones/${currentConvId}/mensaje`, {
-          rol: "assistant",
-          contenido: botText,
-        });
-      } catch (err) {
-        console.error("No se pudo guardar el mensaje del bot:", err);
+      console.error("Error enviando mensaje:", err);
+      if (err?.response?.status === 401) {
+        logout();
+        return;
       }
-    } catch (err) {
-      console.error("Error /buscar:", err);
-      const errorMessage = {
-        role: "assistant",
-        content: "Error al buscar respuesta.",
-      };
-      setMessages((prev) => [...prev, errorMessage]);
-      try {
-        await api.post(`/conversaciones/${currentConvId}/mensaje`, {
-          rol: "assistant",
-          contenido: errorMessage.content,
-        });
-      } catch {}
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "Error al generar respuesta." },
+      ]);
+    } finally {
+      setSending(false);
     }
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === "Enter") handleSend();
+    if (e.key === "Enter" && !sending) handleSend();
   };
 
   return (
@@ -137,7 +127,7 @@ function Chat() {
         <div className="chat-box">
           {messages.map((msg, index) => (
             <div key={index} className={`message ${msg.role}`}>
-              {msg.content}
+              <div style={{ whiteSpace: "pre-wrap" }}>{msg.content}</div>
             </div>
           ))}
           <div ref={messagesEndRef} />
@@ -149,13 +139,16 @@ function Chat() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
+            disabled={sending}
             placeholder={
               chatId
                 ? "Escribí tu pregunta..."
                 : "Escribí para iniciar una nueva conversación"
             }
           />
-          <button onClick={handleSend}>Enviar</button>
+          <button onClick={handleSend} disabled={sending}>
+            {sending ? "Enviando…" : "Enviar"}
+          </button>
         </div>
       </div>
     </div>
