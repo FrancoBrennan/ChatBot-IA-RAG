@@ -113,3 +113,9 @@
   border: none;
   border-radius: 6px;
 }
+
+.message.assistant .sources {
+  margin-top: 6px;
+  font-size: 12px;
+  opacity: 0.8;
+}

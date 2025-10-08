@@ -13,10 +13,9 @@ from sqlalchemy.exc import IntegrityError
 from database import SessionLocal, engine
 from models import Base, Documento, Conversacion, Mensaje, Usuario
 from utils import extraer_texto_pdf
-# ⬇️ si lo dejaste en utils, mantené esta línea; si lo moviste a unresolved.py, cambiá el import
 from utils import registrar_consulta_no_resuelta
 
-# LangChain
+# LangChain / RAG
 from vectorstore_langchain import build_faiss, INDEX_DIR
 from rag_chain import build_rag, INSUFF_MSG
 
@@ -33,18 +32,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ---------- Mensajes ----------
+NO_INDEX_MSG = "No hay documentos indexados."
+
+def _no_index_answer(_q: str, history=None):
+    return NO_INDEX_MSG, []
+
+# valor por defecto seguro si aún no existe el índice
+answer = _no_index_answer
+
 # Crear tablas si no existen
 Base.metadata.create_all(bind=engine)
 
-# ===== LangChain Answer (build si ya hay índice) =====
-answer = None
+# Inicializar RAG si hay índice en disco
 os.makedirs(INDEX_DIR, exist_ok=True)
 if os.path.exists(os.path.join(INDEX_DIR, "index.faiss")):
-    answer = build_rag()
-else:
-    def _empty_answer(_q: str):
-        return NO_INDEX_MSG, []
-    answer = _empty_answer
+    try:
+        answer = build_rag()  # devuelve (question, history=None) -> (texto, fuentes)
+    except Exception:
+        answer = _no_index_answer
 
 # ========= DB dependency =========
 def get_db():
@@ -86,7 +92,6 @@ def _primer_frase(texto: str) -> str:
     return linea
 
 def sugerir_titulo_con_keywords(texto: str, max_len: int = 60) -> str:
-    # Versión simple: solo primera frase (sin grafo)
     titulo = _primer_frase(texto) or "Nueva conversación"
     if len(titulo) > max_len:
         titulo = titulo[:max_len].rstrip() + "…"
@@ -96,7 +101,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     payload = verificar_token(token)
     if not payload or "sub" not in payload:
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
-    user = db.query(Usuario).get(int(payload["sub"]))
+    user = db.get(Usuario, int(payload["sub"]))  # SQLAlchemy 2.0
     if not user or not user.activo:
         raise HTTPException(status_code=401, detail="Usuario no válido")
     return user
@@ -122,7 +127,6 @@ def me(current_user: Usuario = Depends(get_current_user)):
     return {"id": current_user.id, "username": current_user.username, "is_admin": bool(current_user.is_admin)}
 
 # ========= Admin: gestión de usuarios =========
-
 @app.post("/init-admin")
 def init_admin(db: Session = Depends(get_db)):
     if db.query(Usuario).filter_by(username="admin").first():
@@ -185,7 +189,7 @@ def listar_usuarios(db: Session = Depends(get_db), _: Usuario = Depends(require_
 
 @app.patch("/admin/users/{user_id}/estado", response_model=UserCreatedOut)
 def cambiar_estado_usuario(user_id: int, activo: bool, db: Session = Depends(get_db), _: Usuario = Depends(require_admin)):
-    u = db.query(Usuario).get(user_id)
+    u = db.get(Usuario, user_id)
     if not u:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     u.activo = bool(activo)
@@ -198,14 +202,12 @@ def cambiar_estado_usuario(user_id: int, activo: bool, db: Session = Depends(get
 
 @app.delete("/admin/users/{user_id}", status_code=204)
 def borrar_usuario(user_id: int, db: Session = Depends(get_db), _: Usuario = Depends(require_admin)):
-    u = db.query(Usuario).get(user_id)
+    u = db.get(Usuario, user_id)
     if not u:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     db.delete(u)
     db.commit()
     return
-
-NO_INDEX_MSG = "No hay documentos indexados"
 
 # ========= Admin: Datasets (solo admin) =========
 UPLOAD_DIR = "uploads"
@@ -213,14 +215,15 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @app.post("/upload")
 async def upload_pdf(archivo: UploadFile = File(...), db: Session = Depends(get_db), _: Usuario = Depends(require_admin)):
-    if not archivo.filename.lower().endswith(".pdf") or archivo.content_type != "application/pdf":
+    # Permitir content-type variable, validar por extensión
+    if not archivo.filename.lower().endswith(".pdf"):
         return {"error": "Solo se permiten archivos PDF"}
 
     existing = db.query(Documento).filter_by(nombre_archivo=archivo.filename).first()
     if existing:
         return {"error": "Este archivo ya fue subido previamente"}
 
-    file_path = os.path.join(UPLOAD_DIR, archivo.filename)
+    file_path = os.path.join(UPLOAD_DIR, os.path.basename(archivo.filename))
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(archivo.file, buffer)
 
@@ -242,7 +245,11 @@ async def upload_pdf(archivo: UploadFile = File(...), db: Session = Depends(get_
     # Reindex con LangChain
     build_faiss(INDEX_DIR)
     global answer
-    answer = build_rag()
+    try:
+        answer = build_rag()
+    except Exception:
+        answer = _no_index_answer
+
     return {"message": "PDF subido exitosamente", "id": doc.id}
 
 @app.get("/listar-datasets")
@@ -258,82 +265,83 @@ def eliminar_dataset(id: int, db: Session = Depends(get_db), _: Usuario = Depend
 
     ruta_archivo = os.path.join(UPLOAD_DIR, documento.nombre_archivo)
     if os.path.exists(ruta_archivo):
-        os.remove(ruta_archivo)
+        try:
+            os.remove(ruta_archivo)
+        except PermissionError:
+            pass  # Windows a veces bloquea el archivo si está abierto
 
     db.delete(documento)
     db.commit()
 
-    # Si ya no quedan documentos, limpiar índice y setear answer vacío
-    if db.query(Documento.id).count() == 0:
-        # borrar archivos de índice si existieran
-        try:
-            for fname in ["index.faiss", "index.pkl"]:
-                fpath = os.path.join(INDEX_DIR, fname)
-                if os.path.exists(fpath):
-                    os.remove(fpath)
-        except Exception:
-            pass
+    # Reindexar para limpiar índices y refrescar función de respuesta
+    global answer
+    try:
+        build_faiss(INDEX_DIR)
+        answer = build_rag()
+    except Exception:
+        answer = _no_index_answer
 
-        global answer
-        def _empty_answer(_q: str):
-            return NO_INDEX_MSG, []
-        answer = _empty_answer
-
-    return {"mensaje": "Documento eliminado correctamente"}
+    return {"mensaje": "Documento eliminado y reindexado correctamente"}
 
 @app.delete("/documento/{id}", tags=["Documentos"])
-def eliminar_documento(id: int = Path(..., description="ID del documento a eliminar"), _: Usuario = Depends(require_admin)):
-    with engine.connect() as conn:
-        result = conn.execute(text("SELECT COUNT(*) FROM documentos WHERE id = :id"), {"id": id})
-        existe = result.scalar()
+def eliminar_documento(id: int, _: Usuario = Depends(require_admin)):
+    with engine.begin() as conn:
+        existe = conn.execute(text("SELECT COUNT(*) FROM documentos WHERE id = :id"), {"id": id}).scalar()
         if not existe:
             raise HTTPException(status_code=404, detail=f"Documento con id {id} no encontrado.")
         conn.execute(text("DELETE FROM documentos WHERE id = :id"), {"id": id})
-        conn.commit()
     return {"mensaje": f"Documento con id {id} eliminado correctamente."}
 
 @app.post("/actualizar-documentos")
 def actualizar_documentos(_: Usuario = Depends(require_admin)):
-    build_faiss(INDEX_DIR)
     global answer
-    answer = build_rag()
-    return {"mensaje": "Documentos reindexados correctamente"}
+    try:
+        build_faiss(INDEX_DIR)
+        answer = build_rag()
+        return {"mensaje": "Documentos reindexados correctamente"}
+    except RuntimeError:
+        answer = _no_index_answer
+        return {"mensaje": NO_INDEX_MSG}
+    except Exception:
+        answer = _no_index_answer
+        raise HTTPException(status_code=500, detail="Error al reindexar")
 
 # ========= Búsqueda (pública) =========
 @app.get("/buscar")
-def buscar_respuesta(pregunta: str, db: Session = Depends(get_db)):
-    # Si no hay documentos o no existe el índice → mensaje estándar
-    if db.query(Documento.id).count() == 0 or not os.path.exists(os.path.join(INDEX_DIR, "index.faiss")):
-        return {"respuesta": NO_INDEX_MSG, "fuentes": []}
+def buscar_respuesta(pregunta: str):
+    fn = answer if callable(answer) else _no_index_answer
+    texto, fuentes = fn(pregunta)
 
-    texto, fuentes = answer(pregunta)
-
-    # si no hay info suficiente → NO mandar fuentes
-    if not texto or texto.strip() == "" or texto.strip() == INSUFF_MSG:
+    if not texto or texto.strip() == "":
         return {"respuesta": INSUFF_MSG, "fuentes": []}
 
-    # deduplicar y formatear
-    uniq, seen = [], set()
+    txt = texto.strip()
+    if txt in (INSUFF_MSG, NO_INDEX_MSG):
+        return {"respuesta": txt, "fuentes": []}
+
+    # deduplicar fuentes y formatear
+    uniq = []
+    seen = set()
     for f in fuentes:
         if isinstance(f, dict):
             key = (f.get("archivo"), f.get("paginas"))
         else:
             key = f
         if key not in seen:
-            seen.add(key); uniq.append(f)
+            seen.add(key)
+            uniq.append(f)
 
     fuentes_fmt = [
-        f"{f['archivo']}" + (f" (p. {f.get('paginas')})" if isinstance(f, dict) and f.get('paginas') else "")
-        for f in uniq if isinstance(f, dict) and f.get('archivo')
+        f"{f['archivo']}" + (f" (p. {f['paginas']})" if isinstance(f, dict) and 'paginas' in f else "")
+        for f in uniq
     ]
 
-    # ⚠️ Agregamos la leyenda “Basado en: …” al final del texto si hay fuentes
+    # Agregar “Basado en: …” dentro del texto (QA)
+    respuesta_txt = txt
     if fuentes_fmt:
-        texto = f"{texto}\n\nBasado en: {', '.join(fuentes_fmt)}"
+        respuesta_txt = f"{txt}\n\nBasado en: {', '.join(fuentes_fmt)}"
 
-    return {"respuesta": texto, "fuentes": fuentes_fmt}
-
-
+    return {"respuesta": respuesta_txt, "fuentes": fuentes_fmt}
 
 # ========= Conversaciones (asociadas a usuario) =========
 class ConversacionOut(BaseModel):
@@ -355,6 +363,21 @@ class MensajeOut(BaseModel):
     fecha: str | None = None
     class Config:
         from_attributes = True
+
+class PreguntaIn(BaseModel):
+    pregunta: str
+
+def _formatear_fuentes(uniq_fuentes: list[dict | str]) -> list[str]:
+    uniq = []
+    seen = set()
+    for f in uniq_fuentes:
+        key = (f.get("archivo"), f.get("paginas")) if isinstance(f, dict) else f
+        if key not in seen:
+            seen.add(key); uniq.append(f)
+    return [
+        f"{f['archivo']}" + (f" (p. {f['paginas']})" if isinstance(f, dict) and 'paginas' in f else "")
+        for f in uniq
+    ]
 
 @app.post("/conversaciones/", response_model=ConversacionOut, status_code=201)
 def crear_conversacion(
@@ -413,14 +436,40 @@ def agregar_mensaje(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversación no encontrada")
 
+    # Título automático en el 1er mensaje del usuario
     hay_mensajes = db.query(Mensaje.id).filter(Mensaje.conversacion_id == conv.id).first() is not None
     if not hay_mensajes and mensaje.rol.lower() == "user":
         conv.titulo = sugerir_titulo_con_keywords(mensaje.contenido)
 
-    nuevo = Mensaje(conversacion_id=conv.id, rol=mensaje.rol, contenido=mensaje.contenido)
-    db.add(nuevo)
+    # 1) guardo el mensaje entrante
+    db.add(Mensaje(conversacion_id=conv.id, rol=mensaje.rol, contenido=mensaje.contenido))
     db.commit()
-    return {"mensaje": "Mensaje agregado"}
+
+    if mensaje.rol.lower() != "user":
+        return {"mensaje": "Mensaje agregado"}
+
+    # 2) armo historial (últimos N turnos)
+    N = int(os.getenv("HISTORY_TURNS", "6"))
+    mensajes = (db.query(Mensaje)
+                  .filter(Mensaje.conversacion_id == conv.id)
+                  .order_by(Mensaje.fecha.asc())
+                  .all())
+    history = [{"role": m.rol, "content": m.contenido} for m in mensajes][-N:]
+
+    # 3) respondo con RAG + historial
+    fn = answer if callable(answer) else _no_index_answer
+    texto, fuentes = fn(mensaje.contenido, history=history)
+
+    # 4) formateo “Basado en: …” y guardo la respuesta del asistente
+    fuentes_fmt = _formatear_fuentes(fuentes)
+    respuesta_txt = texto
+    if fuentes_fmt:
+        respuesta_txt = f"{texto}\n\nBasado en: {', '.join(fuentes_fmt)}"
+
+    db.add(Mensaje(conversacion_id=conv.id, rol="assistant", contenido=respuesta_txt))
+    db.commit()
+
+    return {"respuesta": respuesta_txt, "fuentes": fuentes_fmt}
 
 @app.delete("/conversaciones/{conv_id}", status_code=204)
 def borrar_conversacion(
