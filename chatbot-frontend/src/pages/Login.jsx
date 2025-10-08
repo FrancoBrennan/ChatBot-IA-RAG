@@ -22,7 +22,7 @@ function Login() {
   return (
     <div className="login-container">
       <form className="login-form" onSubmit={handleSubmit}>
-        <h2>Login de Administrador</h2>
+        <h2>Iniciar sesión</h2>
         <input
           type="text"
           placeholder="Usuario"

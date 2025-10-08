@@ -8,7 +8,6 @@ import {
 } from "../api/adminUsers";
 import axios from "../api/axios";
 import PDFTable from "../components/PDFTable";
-
 import "../styles/AdminPanel.css";
 
 function AdminPanel() {
@@ -37,9 +36,6 @@ function AdminPanel() {
 
   useEffect(() => {
     load();
-  }, []);
-
-  useEffect(() => {
     fetchArchivos();
   }, []);
 
@@ -87,90 +83,105 @@ function AdminPanel() {
           Volver al Chat
         </button>
       </div>
-      <h2>Gestión de Datasets PDF</h2>
-      <div className="upload-box">
-        <input type="file" onChange={(e) => setFile(e.target.files[0])} />
-        <button onClick={handleUpload}>Subir PDF</button>
+
+      {/* -------- Gestión de Datasets PDF -------- */}
+      <h2 className="section-title">Gestión de Datasets PDF</h2>
+      <div className="card">
+        <div className="upload-row">
+          <input type="file" onChange={(e) => setFile(e.target.files[0])} />
+          <button className="btn btn-primary" onClick={handleUpload}>
+            Subir PDF
+          </button>
+        </div>
+
+        <PDFTable
+          className="mt-12"
+          archivos={archivos}
+          onDelete={handleDelete}
+        />
       </div>
-      <PDFTable archivos={archivos} onDelete={handleDelete} />
 
-      <div style={{ padding: 16 }}>
-        <h2>Panel de Administración</h2>
+      {/* -------- Panel de Administración -------- */}
+      <h2 className="section-title">Panel de Administración</h2>
 
-        <section style={{ marginTop: 16 }}>
-          <h3>Crear usuario</h3>
-          <form
-            onSubmit={handleCreate}
-            style={{ display: "grid", gap: 8, maxWidth: 360 }}
-          >
+      {/* Crear usuario */}
+      <div className="card">
+        <h3>Crear usuario</h3>
+        <form
+          onSubmit={handleCreate}
+          style={{ display: "grid", gap: 8, maxWidth: 360 }}
+        >
+          <input
+            type="text"
+            placeholder="Username"
+            value={form.username}
+            onChange={(e) => setForm({ ...form, username: e.target.value })}
+            required
+          />
+          <input
+            type="text"
+            placeholder="Nombre (opcional)"
+            value={form.nombre}
+            onChange={(e) => setForm({ ...form, nombre: e.target.value })}
+          />
+          <input
+            type="password"
+            placeholder="Contraseña"
+            value={form.password}
+            onChange={(e) => setForm({ ...form, password: e.target.value })}
+            required
+          />
+          <label>
             <input
-              placeholder="Username"
-              value={form.username}
-              onChange={(e) => setForm({ ...form, username: e.target.value })}
-              required
-            />
+              type="checkbox"
+              checked={form.is_admin}
+              onChange={(e) => setForm({ ...form, is_admin: e.target.checked })}
+            />{" "}
+            Admin
+          </label>
+          <label>
             <input
-              placeholder="Nombre (opcional)"
-              value={form.nombre}
-              onChange={(e) => setForm({ ...form, nombre: e.target.value })}
-            />
-            <input
-              type="password"
-              placeholder="Contraseña"
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-              required
-            />
-            <label>
-              <input
-                type="checkbox"
-                checked={form.is_admin}
-                onChange={(e) =>
-                  setForm({ ...form, is_admin: e.target.checked })
-                }
-              />{" "}
-              Admin
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={form.activo}
-                onChange={(e) => setForm({ ...form, activo: e.target.checked })}
-              />{" "}
-              Activo
-            </label>
-            {error && <p style={{ color: "red" }}>{error}</p>}
-            <button type="submit">Crear</button>
-          </form>
-        </section>
+              type="checkbox"
+              checked={form.activo}
+              onChange={(e) => setForm({ ...form, activo: e.target.checked })}
+            />{" "}
+            Activo
+          </label>
 
-        <section style={{ marginTop: 24 }}>
-          <h3>Usuarios</h3>
-          <table
-            border="1"
-            cellPadding="6"
-            style={{ borderCollapse: "collapse", width: "100%", maxWidth: 720 }}
-          >
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Username</th>
-                <th>Nombre</th>
-                <th>Admin</th>
-                <th>Activo</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((u) => (
-                <tr key={u.id}>
-                  <td>{u.id}</td>
-                  <td>{u.username}</td>
-                  <td>{u.nombre || "-"}</td>
-                  <td>{u.is_admin ? "Sí" : "No"}</td>
-                  <td>{u.activo ? "Sí" : "No"}</td>
-                  <td style={{ display: "flex", gap: 8 }}>
+          {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
+
+          <button type="submit" className="btn btn-primary">
+            Crear
+          </button>
+        </form>
+      </div>
+
+      {/* Usuarios */}
+      <div className="card">
+        <h3>Usuarios</h3>
+        <table className="table">
+          <thead>
+            <tr>
+              <th className="id-col">ID</th>
+              <th>Username</th>
+              <th>Nombre</th>
+              <th>Admin</th>
+              <th>Activo</th>
+              <th className="actions-col">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((u) => (
+              <tr key={u.id}>
+                <td>{u.id}</td>
+                <td>{u.username}</td>
+                <td>{u.nombre || "-"}</td>
+                <td>{u.is_admin ? "Sí" : "No"}</td>
+                <td>{u.activo ? "Sí" : "No"}</td>
+                <td>
+                  <div className="actions">
                     <button
+                      className="btn btn-secondary"
                       onClick={async () => {
                         await cambiarEstadoUsuario(u.id, !u.activo);
                         load();
@@ -179,6 +190,7 @@ function AdminPanel() {
                       {u.activo ? "Desactivar" : "Activar"}
                     </button>
                     <button
+                      className="btn btn-danger"
                       onClick={async () => {
                         if (confirm("¿Eliminar usuario?")) {
                           await borrarUsuario(u.id);
@@ -188,17 +200,17 @@ function AdminPanel() {
                     >
                       Borrar
                     </button>
-                  </td>
-                </tr>
-              ))}
-              {users.length === 0 && (
-                <tr>
-                  <td colSpan="6">Sin usuarios</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </section>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {users.length === 0 && (
+              <tr>
+                <td colSpan="6">Sin usuarios</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

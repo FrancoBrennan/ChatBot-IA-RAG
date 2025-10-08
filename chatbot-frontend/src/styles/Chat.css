@@ -17,7 +17,8 @@
 /* Área donde aparecen los mensajes */
 .chat-box {
   flex: 1;
-  padding: 1rem;
+  padding: 6rem;
+  width: 80%;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -82,6 +83,24 @@
   top: 15px;
   right: 25px;
   z-index: 1000;
+  width: 20%;
+  display: flex; /* apila elementos */
+  flex-direction: column; /* uno debajo del otro */
+  align-items: flex-end; /* alineados a la derecha */
+  gap: 8px; /* separación vertical */
+}
+
+.user-info {
+  color: #e6e8ea;
+  font-weight: 700;
+}
+
+/* opcional: ancho consistente de los botones */
+.topbar-btn {
+  display: inline-flex;
+  justify-content: center;
+  min-width: 140px; /* ajustá a gusto */
+  text-align: center;
 }
 
 .nav-button {

@@ -117,21 +117,20 @@ function Chat() {
 
       <div className="chat-wrapper">
         <div className="top-bar">
-          <div style={{ marginBottom: 20 }}>
+          <div className="user-info">
             <strong>Usuario:</strong> {user?.username}{" "}
             {user?.is_admin ? "(admin)" : ""}
           </div>
-          <div>
-            {user?.is_admin && (
-              <Link to="/admin" className="nav-button">
-                Administrar Datasets
-              </Link>
-            )}
-            <br />
-            <button onClick={logout} className="nav-button">
-              Cerrar sesión
-            </button>
-          </div>
+
+          {user?.is_admin && (
+            <Link to="/admin" className="nav-button topbar-btn">
+              Administrar Datasets
+            </Link>
+          )}
+
+          <button onClick={logout} className="nav-button topbar-btn">
+            Cerrar sesión
+          </button>
         </div>
 
         <div className="chat-box">
@@ -145,7 +144,7 @@ function Chat() {
 
         <div className="input-box">
           <input
-            type="text"
+            //type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}

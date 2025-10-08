@@ -1,43 +1,241 @@
+/* ======== Tema oscuro y tokens ======== */
+:root {
+  --bg: #0f0f10;
+  --panel: #151617;
+  --card: #1c1d20;
+  --muted: #9aa3ab;
+  --text: #e6e8ea;
+
+  --accent: #0d6efd;
+  --accent-700: #0b5ed7;
+
+  --danger: #dc3545;
+  --danger-700: #b02a37;
+
+  --ok: #20c997;
+
+  --border: #2b2d31; /* líneas internas */
+  --border-strong: #3a3d42; /* marco/encabezado */
+  --row-alt: #17181b; /* zebra rows */
+}
+
+/* ======== Layout general ======== */
 .admin-panel {
-  padding: 2rem;
-  max-width: 800px;
+  padding: 2rem 1.25rem 3rem;
+  max-width: 1000px;
   margin: 0 auto;
+  color: var(--text);
 }
 
-.upload-box {
-  margin-bottom: 1rem;
+.section-title {
+  margin: 24px 0 12px;
+  font-size: 1.6rem;
+  font-weight: 800;
 }
 
-.upload-box input {
-  margin-right: 1rem;
+/* ======== Card / separación de secciones ======== */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  margin-bottom: 20px;
 }
 
-.pdf-table {
+.card h3 {
+  margin: 0 0 10px 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* ======== Top right button ======== */
+.top-bar {
+  position: sticky;
+  top: 12px;
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+  z-index: 5;
+}
+.nav-button {
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+.nav-button:hover {
+  background: var(--accent-700);
+}
+
+/* ======== Inputs y uploader ======== */
+.upload-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+input[type="text"],
+input[type="password"],
+input[type="file"] {
+  width: 100%;
+  max-width: 360px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #232428;
+  color: var(--text);
+}
+input::placeholder {
+  color: var(--muted);
+}
+label {
+  color: var(--muted);
+}
+
+.mt-12 {
+  margin-top: 12px;
+}
+
+/* ======== Botones ======== */
+button,
+.btn {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #232428;
+  color: var(--text);
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.06s ease, background 0.15s ease,
+    border-color 0.15s ease;
+}
+button:hover,
+.btn:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-strong);
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover {
+  background: var(--accent-700);
+}
+
+.btn-secondary {
+  background: #3a3d42;
+  color: #fff;
+}
+.btn-secondary:hover {
+  background: #2e3136;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+.btn-danger:hover {
+  background: var(--danger-700);
+}
+
+/* Badges opcionales */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.badge-ok {
+  background: #16342d;
+  color: var(--ok);
+  border: 1px solid #1c7f68;
+}
+.badge-no {
+  background: #3d1f23;
+  color: var(--danger);
+  border: 1px solid #7a2b34;
+}
+
+/* ======== Tablas (PDFs y Usuarios) ======== */
+.table {
   width: 100%;
   border-collapse: collapse;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--panel);
+  table-layout: fixed; /* columnas consistentes */
 }
 
-.pdf-table th,
-.pdf-table td {
-  border: 1px solid #cfcdcd;
-  padding: 0.5rem;
+.table thead th {
+  background: #26282d;
+  color: var(--text);
   text-align: left;
+  padding: 10px 30px;
+  border-bottom: 1px solid var(--border-strong);
+  font-weight: 800;
 }
 
-.pdf-table th {
-  background: #424141;
+.table tbody td {
+  padding: 10px 12px;
+  border-top: 1px solid var(--border); /* líneas internas */
+  vertical-align: middle;
 }
 
-.top-bar {
-  position: fixed; /* Esto saca el elemento del flujo normal */
-  top: 10px;
-  right: 10px;
-  z-index: 999;
+.table tbody tr:nth-child(odd) {
+  background: var(--row-alt);
+}
+.table tbody tr:hover {
+  background: #23262b;
 }
 
-.nav-button {
-  padding: 8px 16px;
-  font-size: 14px;
-  cursor: pointer;
-  background: #424141;
+.table .actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* columnas */
+.id-col {
+  width: 72px;
+}
+.actions-col {
+  width: 160px;
+}
+.name-col {
+  width: auto;
+}
+
+/* recorte elegante de nombres largos */
+.truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* versión compacta para tablas pequeñas (PDFs) */
+.table--compact thead th,
+.table--compact tbody td {
+  padding: 8px 10px;
+}
+
+/* ======== Responsive ======== */
+@media (max-width: 640px) {
+  .admin-panel {
+    padding: 1.25rem 0.75rem 2rem;
+  }
+  .upload-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .actions-col {
+    width: 130px;
+  }
 }
