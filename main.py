@@ -111,6 +111,121 @@ def require_admin(user: Usuario = Depends(get_current_user)) -> Usuario:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo admins")
     return user
 
+# ---------- Utils comunes para limpieza y fuentes ----------
+
+import re
+
+DOC_RE = re.compile(
+    r"""^\s*(?P<file>.+?\.(?:pdf|docx?|pptx?|xlsx?|csv|md|txt))
+        (?:\s*\(\s*p{1,2}\.\s*(?P<pages>[^)]+)\))?
+        \s*$""", re.IGNORECASE | re.VERBOSE
+)
+
+def _compress_ranges(nums):
+    if not nums: return []
+    nums = sorted(set(nums))
+    out, a, b = [], nums[0], nums[0]
+    for n in nums[1:]:
+        if n == b + 1: b = n
+        else: out.append((a,b)); a=b=n
+    out.append((a,b))
+    return [f"{x}" if x==y else f"{x}–{y}" for x,y in out]
+
+def _format_pages(pages_set):
+    if not pages_set: return ""
+    parts = _compress_ranges(list(pages_set))
+    return f" (p. {parts[0]})" if (len(parts)==1 and "–" not in parts[0]) else f" (pp. {', '.join(parts)})"
+
+def _parse_pages_to_set(pages_value):
+    page_set = set()
+    if pages_value is None or pages_value == "": return page_set
+    if isinstance(pages_value, int):
+        page_set.add(pages_value); return page_set
+    if isinstance(pages_value, (list, tuple, set)):
+        for p in pages_value:
+            try: page_set.add(int(str(p)))
+            except: pass
+        return page_set
+    if isinstance(pages_value, str):
+        tmp = [x.strip() for x in pages_value.replace(";", ",").split(",") if x.strip()]
+        for token in tmp:
+            token = token.replace("pp.", "").replace("p.", "").strip().replace("–","-")
+            if "-" in token:
+                try:
+                    a,b = token.split("-",1); a,b = int(a), int(b)
+                    for n in range(min(a,b), max(a,b)+1): page_set.add(n)
+                except: pass
+            else:
+                try: page_set.add(int(token))
+                except: pass
+    return page_set
+
+def normalize_sources(fuentes: list[dict | str]):
+    """
+    Devuelve (order, docs_pages) donde:
+      - order: lista de archivos en orden de 1a aparición
+      - docs_pages: dict archivo -> set(páginas)
+    Acepta dict({'archivo','paginas'}) o str('file.pdf (pp. 2–4, 7)').
+    """
+    docs_pages, order = {}, []
+    for f in (fuentes or []):
+        if isinstance(f, dict):
+            archivo = f.get("archivo"); pags = f.get("paginas")
+            pages = _parse_pages_to_set(pags)
+        else:
+            s = str(f or "").strip()
+            m = DOC_RE.match(s)
+            if m:
+                archivo = m.group("file")
+                pages = _parse_pages_to_set(m.group("pages"))
+            else:
+                archivo, pages = (s if s else None), set()
+        if not archivo: continue
+        if archivo not in docs_pages:
+            docs_pages[archivo] = set(); order.append(archivo)
+        docs_pages[archivo].update(pages)
+    return order, docs_pages
+
+def format_sources_list(order, docs_pages):
+    """Genera lista de 'archivo (pp. ...)' sin repeticiones."""
+    return [f"{arc}{_format_pages(docs_pages.get(arc,set()))}" for arc in order]
+
+def clean_text_remove_quote_lines(s: str) -> str:
+    # quita líneas que son solo comillas; recorta comillas colgantes
+    lines = [ln for ln in s.splitlines() if ln.strip() not in {'"', "''", '""'}]
+    s = "\n".join(lines).strip()
+    if s.startswith('"') and s.endswith('"') and "\n" not in s:
+        s = s[1:-1].strip()
+    return s
+
+def strip_residual_titles_from_text(texto: str, order, docs_pages) -> str:
+    """
+    Elimina del cuerpo líneas sueltas que coinciden con el 'título' del documento
+    (basename sin extensión, guiones/underscores como espacios), típicamente
+    encabezados que el LLM copió.
+    """
+    if not texto: return texto
+    # candidatos de títulos
+    candidates = set()
+    for arc in order:
+        base = os.path.splitext(os.path.basename(arc))[0]
+        norm = re.sub(r"[_\-]+", " ", base, flags=re.UNICODE).strip()
+        candidates.add(norm.lower())
+        # también versiones capitalizadas
+        candidates.add(norm.title().lower())
+
+    # limpia párrafos que sean exactamente uno de los candidatos (case-insensitive)
+    new_lines = []
+    for ln in texto.splitlines():
+        ln_norm = re.sub(r"\s+", " ", ln).strip().lower()
+        if ln_norm in candidates:
+            # saltear SOLO si es línea aislada o en borde de párrafo
+            # (si aparece embebida en otra frase, no tocar)
+            continue
+        new_lines.append(ln)
+    return "\n".join(new_lines).strip()
+
+
 # ========= Login & Perfil =========
 @app.post("/login", response_model=TokenOut)
 def login(data: LoginInput, db: Session = Depends(get_db)):
@@ -306,7 +421,6 @@ def actualizar_documentos(_: Usuario = Depends(require_admin)):
         answer = _no_index_answer
         raise HTTPException(status_code=500, detail="Error al reindexar")
 
-# ========= Búsqueda (pública) =========
 @app.get("/buscar")
 def buscar_respuesta(pregunta: str):
     fn = answer if callable(answer) else _no_index_answer
@@ -315,33 +429,22 @@ def buscar_respuesta(pregunta: str):
     if not texto or texto.strip() == "":
         return {"respuesta": INSUFF_MSG, "fuentes": []}
 
-    txt = texto.strip()
+    txt = clean_text_remove_quote_lines(texto)
     if txt in (INSUFF_MSG, NO_INDEX_MSG):
         return {"respuesta": txt, "fuentes": []}
 
-    # deduplicar fuentes y formatear
-    uniq = []
-    seen = set()
-    for f in fuentes:
-        if isinstance(f, dict):
-            key = (f.get("archivo"), f.get("paginas"))
-        else:
-            key = f
-        if key not in seen:
-            seen.add(key)
-            uniq.append(f)
+    order, docs_pages = normalize_sources(fuentes)
+    fuentes_fmt = format_sources_list(order, docs_pages)
 
-    fuentes_fmt = [
-        f"{f['archivo']}" + (f" (p. {f['paginas']})" if isinstance(f, dict) and 'paginas' in f else "")
-        for f in uniq
-    ]
+    # elimina títulos-residuo dentro del cuerpo
+    txt = strip_residual_titles_from_text(txt, order, docs_pages)
 
-    # Agregar “Basado en: …” dentro del texto (QA)
     respuesta_txt = txt
     if fuentes_fmt:
-        respuesta_txt = f"{txt}\n\nBasado en: {', '.join(fuentes_fmt)}"
+        respuesta_txt = f"{txt}\n\nBasado en: {'; '.join(fuentes_fmt)}"
 
     return {"respuesta": respuesta_txt, "fuentes": fuentes_fmt}
+
 
 # ========= Conversaciones (asociadas a usuario) =========
 class ConversacionOut(BaseModel):
@@ -366,18 +469,6 @@ class MensajeOut(BaseModel):
 
 class PreguntaIn(BaseModel):
     pregunta: str
-
-def _formatear_fuentes(uniq_fuentes: list[dict | str]) -> list[str]:
-    uniq = []
-    seen = set()
-    for f in uniq_fuentes:
-        key = (f.get("archivo"), f.get("paginas")) if isinstance(f, dict) else f
-        if key not in seen:
-            seen.add(key); uniq.append(f)
-    return [
-        f"{f['archivo']}" + (f" (p. {f['paginas']})" if isinstance(f, dict) and 'paginas' in f else "")
-        for f in uniq
-    ]
 
 @app.post("/conversaciones/", response_model=ConversacionOut, status_code=201)
 def crear_conversacion(
@@ -460,11 +551,17 @@ def agregar_mensaje(
     fn = answer if callable(answer) else _no_index_answer
     texto, fuentes = fn(mensaje.contenido, history=history)
 
-    # 4) formateo “Basado en: …” y guardo la respuesta del asistente
-    fuentes_fmt = _formatear_fuentes(fuentes)
+    # 4) formateo “Basado en: …” con la misma lógica que /buscar
+    order, docs_pages = normalize_sources(fuentes)
+    fuentes_fmt = format_sources_list(order, docs_pages)
+
+    # limpiar texto y quitar posibles títulos-residuo
+    texto = clean_text_remove_quote_lines(texto)
+    texto = strip_residual_titles_from_text(texto, order, docs_pages)
+
     respuesta_txt = texto
     if fuentes_fmt:
-        respuesta_txt = f"{texto}\n\nBasado en: {', '.join(fuentes_fmt)}"
+        respuesta_txt = f"{texto}\n\nBasado en: {'; '.join(fuentes_fmt)}"
 
     db.add(Mensaje(conversacion_id=conv.id, rol="assistant", contenido=respuesta_txt))
     db.commit()
