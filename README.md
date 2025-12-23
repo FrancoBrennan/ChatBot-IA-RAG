@@ -54,6 +54,7 @@ Implementa una arquitectura **RAG (Retrieval-Augmented Generation)** con control
 ## 📂 Estructura del proyecto
 
 
+```txt
 backend/
 ├── main.py
 ├── database.py
@@ -89,7 +90,7 @@ frontend/
 │   │   └── PrivateRoute.jsx
 │   ├── App.jsx
 │   └── main.jsx
-
+```
 
 ## 📡 Endpoints de la API
 
@@ -134,11 +135,3 @@ Gestión de usuarios y datasets PDF.
 Conversaciones persistentes con respuestas trazables por documento.
 
 <img width="1824" height="866" alt="image" src="https://github.com/user-attachments/assets/87cc6053-b361-4dc2-aa51-238f31f4d0f8" />
-
-### Panel de Administración
-Gestión de usuarios y datasets PDF.
-![Panel Admin](docs/images/admin-panel.png)
-
-### Chat con IA (RAG)
-Conversaciones persistentes con respuestas trazables por documento.
-![Chat](docs/images/chat.png)
