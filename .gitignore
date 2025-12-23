@@ -28,3 +28,4 @@ dist/
 
 # ---- Secretos
 .env
+.env
